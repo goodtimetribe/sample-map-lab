@@ -28,8 +28,25 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def clear_mapping_outputs(samples_dir, output_dir, input_path):
+    """Remove only the filenames reserved for this analyzer's MIDI exports."""
+    samples = Path(samples_dir)
+    candidates = [Path(output_dir) / "segments.csv"]
+    candidates.extend(samples / f"midi_{note:03d}.wav" for note in range(128))
+    existing = [p for p in candidates if p.is_file() or p.is_symlink()]
+    if any(p.resolve() == input_path.resolve() for p in existing):
+        raise ValueError("input recording conflicts with a reserved output path; use separate directories")
+    for candidate in existing:
+        candidate.unlink()
+
+
 def analyze(args) -> int:
     path = Path(args.wav)
+    try:
+        clear_mapping_outputs(args.samples_dir, args.output_dir, path)
+    except (OSError, ValueError) as exc:
+        print(f"error: cannot clear previous mapping outputs: {exc}", file=sys.stderr)
+        return 2
     if not path.is_file():
         print(f"error: {path} not found", file=sys.stderr)
         return 2
@@ -72,8 +89,16 @@ def analyze(args) -> int:
               "Inspect the diagnostic image and adjust --onset-threshold / --min-spacing.", file=sys.stderr)
         return 1
     filenames = [f"midi_{address.midi_note:03d}.wav" for address in addresses]
-    paths = export_events(rec, events, filenames, args.samples_dir)
-    write_segments_manifest(rec, events, addresses, paths, out / "segments.csv")
+    try:
+        paths = export_events(rec, events, filenames, args.samples_dir)
+        write_segments_manifest(rec, events, addresses, paths, out / "segments.csv")
+    except (OSError, RuntimeError) as exc:
+        print(f"error: cannot export mapping: {exc}", file=sys.stderr)
+        try:
+            clear_mapping_outputs(args.samples_dir, args.output_dir, path)
+        except (OSError, ValueError) as cleanup_exc:
+            print(f"error: cannot clear incomplete mapping outputs: {cleanup_exc}", file=sys.stderr)
+        return 2
     print(f"Exported {len(paths)} samples to {args.samples_dir}/")
     print(f"Segmentation manifest: {out / 'segments.csv'}")
     return 0

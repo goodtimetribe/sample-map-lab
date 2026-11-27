@@ -2,6 +2,7 @@ import csv
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import numpy as np
 import soundfile as sf
@@ -80,6 +81,94 @@ def test_cli_end_to_end(tmp_path, capsys):
     assert (tmp_path / "o2" / "segmentation.png").exists()
     assert not (tmp_path / "o2" / "segments.csv").exists()
     assert "Expected events: 6" in capsys.readouterr().out
+
+
+def test_failed_rerun_removes_stale_mapping_but_keeps_diagnostic(tmp_path):
+    wav = tmp_path / "r.wav"
+    sf.write(wav, synth(3), SR, subtype="FLOAT")
+    samples, output = tmp_path / "samples", tmp_path / "output"
+    args = ["analyze", str(wav), "--first-note", "25",
+            "--samples-dir", str(samples), "--output-dir", str(output)]
+    assert main([*args, "--last-note", "27"]) == 0
+    assert len(list(samples.glob("midi_*.wav"))) == 3
+    assert (output / "segments.csv").is_file()
+    (samples / "keep.wav").write_bytes(b"keep")
+    (samples / "midi_128.wav").write_bytes(b"keep")
+    (samples / "midi_backup.wav").write_bytes(b"keep")
+    (output / "keep.txt").write_text("keep")
+    (output / "segmentation.png").write_bytes(b"old diagnostic")
+
+    assert main([*args, "--last-note", "28"]) != 0
+    assert not list(samples.glob("midi_0[0-9][0-9].wav"))
+    assert not (output / "segments.csv").exists()
+    assert (output / "segmentation.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    assert (samples / "keep.wav").read_bytes() == b"keep"
+    assert (samples / "midi_128.wav").read_bytes() == b"keep"
+    assert (samples / "midi_backup.wav").read_bytes() == b"keep"
+    assert (output / "keep.txt").read_text() == "keep"
+
+
+def test_rerun_with_smaller_range_removes_old_samples(tmp_path):
+    wav = tmp_path / "r.wav"
+    samples, output = tmp_path / "samples", tmp_path / "output"
+    args = ["analyze", str(wav), "--first-note", "25",
+            "--samples-dir", str(samples), "--output-dir", str(output)]
+    sf.write(wav, synth(3), SR, subtype="FLOAT")
+    assert main([*args, "--last-note", "27"]) == 0
+    sf.write(wav, synth(2), SR, subtype="FLOAT")
+    assert main([*args, "--last-note", "26"]) == 0
+    assert sorted(p.name for p in samples.glob("midi_*.wav")) == ["midi_025.wav", "midi_026.wav"]
+
+
+def test_input_in_reserved_output_path_is_not_deleted(tmp_path, capsys):
+    samples, output = tmp_path / "samples", tmp_path / "output"
+    samples.mkdir()
+    wav = samples / "midi_025.wav"
+    sf.write(wav, synth(2), SR, subtype="FLOAT")
+    before = wav.read_bytes()
+    assert main(["analyze", str(wav), "--samples-dir", str(samples),
+                 "--output-dir", str(output), "--first-note", "25", "--last-note", "26"]) != 0
+    assert wav.read_bytes() == before
+    assert "conflicts with a reserved output path" in capsys.readouterr().err
+
+
+def test_export_failure_removes_partial_mapping(tmp_path, monkeypatch, capsys):
+    wav = tmp_path / "r.wav"
+    sf.write(wav, synth(2), SR, subtype="FLOAT")
+    samples, output = tmp_path / "samples", tmp_path / "output"
+
+    def fail_manifest(*args):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("sample_map_lab.cli.write_segments_manifest", fail_manifest)
+    assert main(["analyze", str(wav), "--samples-dir", str(samples), "--output-dir", str(output),
+                 "--first-note", "25", "--last-note", "26"]) != 0
+    assert not list(samples.glob("midi_*.wav"))
+    assert not (output / "segments.csv").exists()
+    assert (output / "segmentation.png").exists()
+    assert "disk full" in capsys.readouterr().err
+
+
+def test_cleanup_failure_stops_analysis(tmp_path, monkeypatch, capsys):
+    wav = tmp_path / "r.wav"
+    sf.write(wav, synth(2), SR, subtype="FLOAT")
+    samples, output = tmp_path / "samples", tmp_path / "output"
+    samples.mkdir()
+    stale = samples / "midi_025.wav"
+    stale.write_bytes(b"old")
+    original_unlink = Path.unlink
+
+    def fail_unlink(path, *args, **kwargs):
+        if path == stale:
+            raise PermissionError("permission denied")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_unlink)
+    assert main(["analyze", str(wav), "--samples-dir", str(samples), "--output-dir", str(output),
+                 "--first-note", "25", "--last-note", "26"]) != 0
+    assert stale.read_bytes() == b"old"
+    assert not (output / "segmentation.png").exists()
+    assert "cannot clear previous mapping outputs" in capsys.readouterr().err
 
 
 def test_non_midi_addresses_can_drive_segmentation():

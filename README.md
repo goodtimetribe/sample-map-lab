@@ -30,8 +30,11 @@ If the detected event count differs from `last-note - first-note + 1`, nothing i
 and the command exits non-zero; tune `--onset-threshold`, `--min-spacing`, `--pre-onset-padding`,
 `--max-duration`, `--silence-threshold-db`. Each event's end is found from the energy envelope
 (bounded by the next onset and `--max-duration`).
-Existing output files are not removed when a run fails; use a fresh output and
-samples directory when interpreting results.
+Before each analysis, the analyzer removes the prior `output/segments.csv` and
+reserved `samples/midi_000.wav` through `samples/midi_127.wav` files in the
+specified directories. Keep other files under different names. A failed
+event-count validation still writes the diagnostic image but no mapping outputs.
+If cleanup fails, the command reports an error; prior artifacts may remain.
 
 The default segmentation parameters have only been tested against synthetic
 recordings and have not yet been validated against a real RC-500 recording.
