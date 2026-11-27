@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rc500-analyzer"
+version = "0.1.0"
+description = "Experimental analysis of MIDI-addressable sounds in a BOSS RC-500"
+requires-python = ">=3.9"
+dependencies = ["numpy", "scipy", "librosa", "soundfile", "matplotlib"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
