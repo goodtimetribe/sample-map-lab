@@ -1,17 +1,18 @@
-"""Command line interface: `python -m rc500_analyzer analyze recording.wav ...`"""
+"""Command line interface: `python -m sample_map_lab analyze recording.wav ...`"""
 
 import argparse
 import sys
 from pathlib import Path
 
 from .audio import describe, load_wav
-from .reporting import plot_segmentation
+from .midi_notes import midi_addresses
+from .reporting import plot_segmentation, write_segments_manifest
 from .segmentation import SegmentationSettings, export_events, segment
 
 
 def build_parser() -> argparse.ArgumentParser:
     d = SegmentationSettings()
-    p = argparse.ArgumentParser(prog="rc500_analyzer")
+    p = argparse.ArgumentParser(prog="sample_map_lab")
     sub = p.add_subparsers(dest="command", required=True)
     a = sub.add_parser("analyze", help="segment a recording and export one WAV per MIDI note")
     a.add_argument("wav")
@@ -51,7 +52,8 @@ def analyze(args) -> int:
         silence_threshold_db=args.silence_threshold_db,
     )
     try:
-        events, diag = segment(rec, args.first_note, args.last_note, settings)
+        addresses = midi_addresses(args.first_note, args.last_note)
+        events, diag = segment(rec, addresses, settings)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -62,15 +64,18 @@ def analyze(args) -> int:
 
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    plot_segmentation(rec, events, args.first_note, args.last_note, out / "segmentation.png")
+    plot_segmentation(rec, events, addresses, out / "segmentation.png")
     print(f"Segmentation diagnostic: {out / 'segmentation.png'}")
 
     if not diag["count_ok"]:
         print("ERROR: event count mismatch; not exporting samples to avoid assigning wrong MIDI numbers.\n"
               "Inspect the diagnostic image and adjust --onset-threshold / --min-spacing.", file=sys.stderr)
         return 1
-    paths = export_events(rec, events, args.first_note, args.last_note, args.samples_dir)
+    filenames = [f"midi_{address.midi_note:03d}.wav" for address in addresses]
+    paths = export_events(rec, events, filenames, args.samples_dir)
+    write_segments_manifest(rec, events, addresses, paths, out / "segments.csv")
     print(f"Exported {len(paths)} samples to {args.samples_dir}/")
+    print(f"Segmentation manifest: {out / 'segments.csv'}")
     return 0
 
 

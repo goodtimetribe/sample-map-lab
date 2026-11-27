@@ -1,6 +1,9 @@
 import pytest
 
-from rc500_analyzer.midi_notes import assign_notes, expected_event_count, note_name
+from dataclasses import FrozenInstanceError
+
+from sample_map_lab.addresses import SampleAddress
+from sample_map_lab.midi_notes import assign_notes, expected_event_count, midi_addresses, note_name
 
 
 def test_expected_count():
@@ -31,3 +34,14 @@ def test_note_names():
     assert note_name(60, "C5") == "C5"
     assert note_name(25) == "C#1"
     assert note_name(0) == "C-1"
+
+
+def test_midi_addresses():
+    addresses = midi_addresses(25, 88)
+    assert addresses[0] == SampleAddress(0, "midi_note", 25, "MIDI 25", 25, "C#1")
+    assert [a.index for a in addresses] == list(range(64))
+    assert [a.address_value for a in addresses] == list(range(25, 89))
+    assert all(a.midi_note == a.address_value for a in addresses)
+    assert midi_addresses(60, 60, "C3")[0].note_name == "C3"
+    with pytest.raises(FrozenInstanceError):
+        addresses[0].index = 1

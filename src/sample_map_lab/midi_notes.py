@@ -1,6 +1,8 @@
 """MIDI note helpers. The integer note number is the canonical identifier;
 note names are display-only and depend on an octave-numbering convention."""
 
+from .addresses import SampleAddress
+
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 # Octave number shown for MIDI note 0 (C-1 in the common "C4 = 60" convention).
@@ -35,3 +37,12 @@ def note_name(note: int, middle_c: str = "C4") -> str:
         raise ValueError(f"Unknown convention {middle_c!r}; use one of {sorted(MIDDLE_C_CONVENTIONS)}")
     octave = note // 12 + MIDDLE_C_CONVENTIONS[middle_c]
     return f"{NOTE_NAMES[note % 12]}{octave}"
+
+
+def midi_addresses(first_note: int, last_note: int, middle_c: str = "C4") -> list:
+    """Create the ordered addresses for a MIDI-note sweep."""
+    count = expected_event_count(first_note, last_note)
+    return [
+        SampleAddress(i, "midi_note", note, f"MIDI {note}", note, note_name(note, middle_c))
+        for i, note in enumerate(assign_notes(count, first_note, last_note))
+    ]

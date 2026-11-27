@@ -8,7 +8,6 @@ import numpy as np
 import soundfile as sf
 
 from .audio import Recording
-from .midi_notes import assign_notes, expected_event_count
 
 
 @dataclass
@@ -83,9 +82,9 @@ def build_events(mono: np.ndarray, onsets: np.ndarray, sr: int, s: SegmentationS
     return events
 
 
-def segment(rec: Recording, first_note: int, last_note: int, s: SegmentationSettings):
+def segment(rec: Recording, addresses, s: SegmentationSettings):
     """Return (events, diagnostics). Does not raise on count mismatch; check `diagnostics['count_ok']`."""
-    expected = expected_event_count(first_note, last_note)
+    expected = len(addresses)
     onsets = detect_onsets(rec.mono(), rec.sample_rate, s)
     events = build_events(rec.mono(), onsets, rec.sample_rate, s)
     warnings = []
@@ -105,14 +104,15 @@ def segment(rec: Recording, first_note: int, last_note: int, s: SegmentationSett
     return events, diag
 
 
-def export_events(rec: Recording, events, first_note: int, last_note: int, out_dir) -> list:
-    """Write midi_NNN.wav files (original channels and sample rate). Requires an exact count."""
-    notes = assign_notes(len(events), first_note, last_note)
+def export_events(rec: Recording, events, filenames, out_dir) -> list:
+    """Write events to the supplied filenames, preserving channels and sample rate."""
+    if len(events) != len(filenames):
+        raise ValueError("Event and filename counts must match")
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = []
-    for note, e in zip(notes, events):
-        p = out_dir / f"midi_{note:03d}.wav"
+    for filename, e in zip(filenames, events):
+        p = out_dir / filename
         sf.write(str(p), rec.data[e.start:e.end], rec.sample_rate, subtype="FLOAT")
         paths.append(p)
     return paths
